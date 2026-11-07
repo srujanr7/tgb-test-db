@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notes</title>
+<style>
+:root{--bg:#f4f1ea;--fg:#1d2a1f;--muted:#6b7a6d;--accent:#2f7a4a;--card:#fffdf8;--line:#ddd6c8;--err:#b3412f}
+@media (prefers-color-scheme:dark){:root{--bg:#121714;--fg:#e8efe9;--muted:#93a596;--accent:#5cc287;--card:#1a211c;--line:#2a332d;--err:#e07a68}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:32px 16px}
+main{max-width:560px;margin:0 auto}
+h1{margin:0 0 4px;font-size:1.8rem}
+.sub{margin:0 0 24px;color:var(--muted)}
+form{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;display:grid;gap:10px;margin-bottom:24px}
+textarea{width:100%;min-height:80px;padding:10px 12px;font:inherit;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);resize:vertical}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+button{padding:10px 20px;font:inherit;font-weight:600;border:0;border-radius:10px;background:var(--accent);color:#fff;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+.error{color:var(--err);font-size:.9rem;margin:0;min-height:1.1em}
+ul{list-style:none;padding:0;margin:0;display:grid;gap:10px}
+li{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start}
+.body{flex:1;min-width:0}
+.text{white-space:pre-wrap;word-wrap:break-word;margin:0 0 6px}
+.date{font-size:.8rem;color:var(--muted)}
+.del{background:transparent;color:var(--muted);border:1px solid var(--line);padding:6px 12px;font-size:.85rem;font-weight:500}
+.del:hover{color:var(--err);border-color:var(--err)}
+.empty{color:var(--muted);justify-content:center}
+</style>
+</head>
+<body>
+<main>
+<h1>Notes</h1>
+<p class="sub">Saved in a PostgreSQL database.</p>
+<form id="form">
+<textarea id="text" placeholder="Write a note…" maxlength="2000" required></textarea>
+<div class="row">
+<p class="error" id="error"></p>
+<button id="add" type="submit">Add note</button>
+</div>
+</form>
+<ul id="list"><li class="empty">Loading notes…</li></ul>
+</main>
+<script>
+// deployinn points these paths at the backend server when it deploys
+const NOTES_URL = 'https://tgb-test-db-api.deployinn.com/api/notes';
+
+const list = document.getElementById('list');
+const form = document.getElementById('form');
+const textI = document.getElementById('text');
+const errorEl = document.getElementById('error');
+const addB = document.getElementById('add');
+
+const when = iso => new Date(iso).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
+
+function render(notes){
+  list.innerHTML = '';
+  if (!notes.length){ list.innerHTML = '<li class="empty">No notes yet.</li>'; return; }
+  for (const n of notes){
+    const li = document.createElement('li');
+    const body = document.createElement('div'); body.className = 'body';
+    const p = document.createElement('p'); p.className = 'text'; p.textContent = n.text;
+    const d = document.createElement('div'); d.className = 'date'; d.textContent = when(n.createdAt);
+    body.append(p, d);
+    const del = document.createElement('button'); del.className = 'del'; del.textContent = 'Delete';
+    del.onclick = () => remove(n.id, del);
+    li.append(body, del);
+    list.append(li);
+  }
+}
+
+async function load(){
+  try {
+    const r = await fetch(NOTES_URL);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    render(await r.json());
+  } catch (e) {
+    list.innerHTML = '<li class="empty">Could not load notes.</li>';
+  }
+}
+
+async function remove(id, btn){
+  btn.disabled = true;
+  errorEl.textContent = '';
+  try {
+    const r = await fetch(NOTES_URL + '/' + id, { method: 'DELETE' });
+    if (!r.ok && r.status !== 404) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || 'Could not delete the note.');
+    }
+    await load();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    btn.disabled = false;
+  }
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorEl.textContent = '';
+  addB.disabled = true;
+  try {
+    const r = await fetch(NOTES_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text: textI.value })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Could not save the note.');
+    textI.value = '';
+    await load();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    addB.disabled = false;
+  }
+});
+
+load();
+</script>
+</body>
+</html>
